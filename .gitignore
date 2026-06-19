@@ -13,6 +13,7 @@ out/
 
 ### local configuration ###
 .env
+.mcp.json
 /bin/
 /target/
 docker/data/
