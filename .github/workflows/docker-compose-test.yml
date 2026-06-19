@@ -1,0 +1,63 @@
+name: Docker Compose Smoke Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "docker/**"
+      - ".github/workflows/docker-compose-test.yml"
+
+jobs:
+  compose-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Create .env from example
+        working-directory: docker
+        run: |
+          cp .env.example .env
+          # Fill in required secrets with dummy values for CI
+          echo "CSAF_CLIENT_SECRET=ci-test-secret-value" >> .env
+          echo "CSAF_COOKIE_SECRET=$(openssl rand -base64 32 | tr -d '\n')" >> .env
+
+      # Start only services with pre-built images that we control.
+      # secvisogram and validator build from remote git repos and may
+      # break due to upstream changes (e.g. missing webpack).
+      # reverse-proxy depends on secvisogram/validator, so it is also excluded.
+      - name: Start infrastructure services
+        working-directory: docker
+        run: >-
+          docker compose up -d --wait --wait-timeout 300
+          cms-couchdb keycloak-db keycloak oauth2-proxy
+
+      - name: Verify CouchDB is healthy
+        run: |
+          echo "Testing CouchDB..."
+          curl --fail --silent --show-error http://localhost:5984/_up
+
+      - name: Verify Keycloak is healthy
+        run: |
+          echo "Testing Keycloak realm endpoint..."
+          curl --fail --retry 3 --retry-delay 5 --silent --show-error \
+            http://localhost:9000/realms/master
+
+      - name: Show container status
+        if: always()
+        working-directory: docker
+        run: docker compose ps -a
+
+      - name: Dump container logs on failure
+        if: failure()
+        working-directory: docker
+        run: docker compose logs --tail=100
+
+      - name: Stop Docker Compose stack
+        if: always()
+        working-directory: docker
+        run: docker compose down --volumes
