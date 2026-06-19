@@ -73,12 +73,14 @@ kcadm.sh update clients/$id --server "$keycloak_url" --target-realm="$realm" \
 
 # Create client roles
 echo "Create client roles for client $client_id ($id) in realm $realm"
-kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=registered --set "description=Registred user"
-kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=author --set "description=author"
-kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=editor --set "description=registred"
-kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=publisher --set "description=registred"
-kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=reviewer --set "description=registred"
-kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=auditor --set "description=registred"
+kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=registered --set "description=Registered user"
+kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=author --set "description=Author"
+kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=editor --set "description=Editor"
+kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=publisher --set "description=Publisher"
+kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=reviewer --set "description=Reviewer"
+kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=auditor --set "description=Auditor"
+kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=manager --set "description=Manager"
+kcadm.sh create clients/$id/roles --server "$keycloak_url" --target-realm="$realm" --set name=administrator --set "description=Administrator"
 
 echo "Get client role ids for client $client_id ($id) in realm $realm"
 #kcadm.sh get-roles --server "$keycloak_url" --target-realm="$realm" --cid "$id" --rolename author --fields id
