@@ -154,6 +154,15 @@ public class PostgresRepositoryService {
     }
 
     /**
+     * Return every advisory version snapshot stored in the database.
+     *
+     * @return all advisory version entities
+     */
+    public List<AdvisoryVersionEntity> findAllAdvisoryVersions() {
+        return advisoryVersionRepository.findAll();
+    }
+
+    /**
      * Delete all version snapshots belonging to the given advisory.
      *
      * @param advisoryId the advisory UUID whose versions should be removed
