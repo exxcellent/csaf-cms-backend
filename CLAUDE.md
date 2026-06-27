@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**CSAF CMS Backend** — a Spring Boot 3.5 REST API (Java 21) for managing CSAF (Common Security Advisory Framework) security advisory documents. Uses CouchDB as its document store (via IBM Cloudant SDK), authenticates via Keycloak (OAuth2/JWT resource server), and supports export to JSON, HTML (Mustache/GraalVM), Markdown (Pandoc), and PDF (WeasyPrint).
+**CSAF CMS Backend** — a Spring Boot 4.1 REST API (Java 21) for managing CSAF (Common Security Advisory Framework) security advisory documents. Uses PostgreSQL as its datastore (via Spring Data JPA + Flyway), authenticates via Keycloak (OAuth2/JWT resource server), and supports export to JSON, HTML (Mustache/GraalVM), Markdown (Pandoc), and PDF (WeasyPrint).
 
 ## Build & Run Commands
 
@@ -15,12 +15,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./mvnw test -Dtest=AdvisoryControllerTest                    # single test class
 ./mvnw test -Dtest=AdvisoryControllerTest#testGetAdvisory    # single test method
 ./mvnw verify                            # tests + JaCoCo + SpotBugs + Checkstyle
-./mvnw -Pgithub-action clean verify      # CI profile (excludes CouchDB-dependent tests)
+./mvnw -Pgithub-action clean verify      # CI profile (excludes DB-integration tests)
 ```
 
 Docker: `./mvnw clean package && docker build -f alpine.Dockerfile -t csaf-cms-backend .`
 
-Dev environment (CouchDB, Keycloak, validator, nginx): `docker compose -f docker/compose.yaml up`
+Dev environment (PostgreSQL, Keycloak, validator, nginx): `docker compose -f docker/compose.yaml up`
 
 ## Architecture
 
@@ -38,7 +38,7 @@ REST API (:8081, /api/v1/)
 │ json/AdvisoryWrapper      — central domain object           │
 │ json/Versioning           — Semantic or Integer strategy    │
 │                                                             │
-│ couchdb/CouchDbService    — all CouchDB CRUD via Cloudant   │
+│ service/PostgresRepositoryService — all DB ops via JPA repos│
 │ validator/ValidatorServiceClient — calls csaf-validator-service │
 │                                                             │
 │ config/SecurityConfig     — OAuth2 JWT resource server      │
@@ -57,8 +57,8 @@ REST API (:8081, /api/v1/)
 ## Testing
 
 - **JUnit 5** + **Mockito** for unit tests; **Spring Boot Test** (`@WebMvcTest` + `MockMvc`) for controller tests
-- **Testcontainers** for CouchDB integration tests (`CouchDBExtension` — JUnit 5 Extension)
-- CI profile excludes: `CouchDbServiceTest`, `AdvisoryWorkflowSemanticVersioningTest`, `AdvisorySearchUtilTest` (require live CouchDB)
+- **Testcontainers** for PostgreSQL integration tests (`PostgreSQLExtension` — JUnit 5 Extension)
+- CI profile excludes: integration tests that require a live database container
 - Test fixtures in `src/test/java/.../fixture/`; sample CSAF docs in `src/test/resources/`
 - Coverage target: 95% (enforced via JaCoCo, reported on PRs)
 
@@ -69,7 +69,7 @@ All values overridable via env vars. Most important:
 | Env Var | Purpose | Default |
 |---|---|---|
 | `CSAF_CMS_BACKEND_PORT` | Server port | `8081` |
-| `CSAF_COUCHDB_HOST/PORT/DBNAME/USER/PASSWORD` | CouchDB connection | `localhost:5984/csaf/admin/admin` |
+| `CSAF_DB_HOST/PORT/NAME/USER/PASSWORD` | PostgreSQL connection | `localhost:5432/csaf/csaf/csaf` |
 | `CSAF_OIDC_ISSUER_URL` | Keycloak realm issuer | `http://localhost/realms/csaf` |
 | `CSAF_VALIDATION_BASE_URL` | Validator service URL | (empty) |
 | `CSAF_VERSIONING` | `Semantic` or `Integer` | `Semantic` |
@@ -89,13 +89,15 @@ Also loads `optional:file:.env[.properties]` for local overrides.
 ```
 src/main/java/de/bsi/secvisogram/csaf_cms_backend/
 ├── config/          — Spring config, security, roles, versioning settings
-├── couchdb/         — CouchDB repository layer (Cloudant SDK)
+├── couchdb/         — Legacy field enums and exceptions (retained for wrapper compatibility)
+├── entity/          — JPA entities (AdvisoryEntity, CommentEntity, audit trail, etc.)
 ├── exception/       — Domain exceptions with error codes
 ├── json/            — Domain wrappers, versioning strategies, audit trail
 ├── model/           — Enums (WorkflowState, ExportFormat, filter expressions)
 ├── mustache/        — GraalVM JS-based Mustache HTML export
+├── repository/      — Spring Data JPA repository interfaces
 ├── rest/            — Controllers, request/response DTOs
-├── service/         — Business logic, workflow, external tool integrations
+├── service/         — Business logic, workflow, PostgresRepositoryService bridge
 └── validator/       — CSAF validator service HTTP client
 ```
 
