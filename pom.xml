@@ -153,11 +153,6 @@
 		</dependency>
 		<!-- Database -->
 		<dependency>
-			<groupId>com.ibm.cloud</groupId>
-			<artifactId>cloudant</artifactId>
-			<version>${dependency.version.cloudant}</version>
-		</dependency>
-		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
@@ -197,6 +192,11 @@
 			<version>${dependency.version.springdoc-openapi}</version>
 		</dependency>
 
+		<!-- Used in JavascriptExporter for Base64 encoding -->
+		<dependency>
+			<groupId>commons-codec</groupId>
+			<artifactId>commons-codec</artifactId>
+		</dependency>
 		<!-- Used in
 		de.bsi.secvisogram.csaf_cms_backend.service.AdvisoryWorkflow -->
 		<dependency>
