@@ -400,11 +400,8 @@ public class AdvisoryServiceTest {
     }
 
     private List<JsonNode> readAllAuditTrailDocumentsFromDb() throws IOException {
-
-        Collection<DbField> fields = Arrays.asList(CouchDbField.ID_FIELD, ADVISORY_ID, CREATED_AT,
-                CHANGE_TYPE, DIFF, DOC_VERSION);
-        Map<String, Object> selector = expr2CouchDBFilter(equal(ObjectType.AuditTrailDocument.name(), TYPE_FIELD.getDbName()));
-        return advisoryService.findDocuments(selector, fields);
+        // TODO: Rewrite to use PostgresRepositoryService for audit trail queries
+        throw new UnsupportedOperationException("Needs PostgreSQL migration — use AuditTrailDocumentRepository");
     }
 
     @Test
@@ -594,6 +591,9 @@ public class AdvisoryServiceTest {
 
         Collection<DbField> auditTrailFields = Arrays.asList(CouchDbField.ID_FIELD, DOC_VERSION, OLD_DOC_VERSION, NEW_WORKFLOW_STATE, OLD_WORKFLOW_STATE);
 
+        // TODO: Rewrite audit trail assertions to use PostgresRepositoryService / AuditTrailWorkflowRepository
+        throw new UnsupportedOperationException("Needs PostgreSQL migration — use AuditTrailWorkflowRepository");
+        /*
         Map<String, Object> workflowAuditTrailsSelector = expr2CouchDBFilter(equal(ObjectType.AuditTrailWorkflow.name(), TYPE_FIELD.getDbName()));
         List<JsonNode> workflowAuditTrails = advisoryService.findDocuments(workflowAuditTrailsSelector, auditTrailFields);
 
@@ -613,6 +613,7 @@ public class AdvisoryServiceTest {
         assertEquals("1.0.0-1.0", toApprovedWorkflowAuditTrail.get(DOC_VERSION.getDbName()).asString());
         assertEquals("Review", toApprovedWorkflowAuditTrail.get(OLD_WORKFLOW_STATE.getDbName()).asString());
         assertEquals("Approved", toApprovedWorkflowAuditTrail.get(NEW_WORKFLOW_STATE.getDbName()).asString());
+        */
 
     }
 
