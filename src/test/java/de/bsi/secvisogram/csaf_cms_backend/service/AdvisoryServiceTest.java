@@ -1,5 +1,47 @@
 package de.bsi.secvisogram.csaf_cms_backend.service;
 
+import static de.bsi.secvisogram.csaf_cms_backend.couchdb.AdvisoryAuditTrailField.ADVISORY_ID;
+import static de.bsi.secvisogram.csaf_cms_backend.couchdb.AdvisoryAuditTrailField.DIFF;
+import static de.bsi.secvisogram.csaf_cms_backend.couchdb.AdvisoryAuditTrailField.DOC_VERSION;
+import static de.bsi.secvisogram.csaf_cms_backend.couchdb.AdvisoryAuditTrailField.NEW_WORKFLOW_STATE;
+import static de.bsi.secvisogram.csaf_cms_backend.couchdb.AdvisoryAuditTrailField.OLD_DOC_VERSION;
+import static de.bsi.secvisogram.csaf_cms_backend.couchdb.AdvisoryAuditTrailField.OLD_WORKFLOW_STATE;
+import static de.bsi.secvisogram.csaf_cms_backend.couchdb.AuditTrailField.CHANGE_TYPE;
+import static de.bsi.secvisogram.csaf_cms_backend.couchdb.AuditTrailField.CREATED_AT;
+
+import static de.bsi.secvisogram.csaf_cms_backend.couchdb.CouchDbField.TYPE_FIELD;
+import static de.bsi.secvisogram.csaf_cms_backend.fixture.CsafDocumentJsonCreator.csafToInputstream;
+import static de.bsi.secvisogram.csaf_cms_backend.fixture.CsafDocumentJsonCreator.csafToRequest;
+import static de.bsi.secvisogram.csaf_cms_backend.json.VersioningType.Semantic;
+import static de.bsi.secvisogram.csaf_cms_backend.model.filter.OperatorExpression.equal;
+import static java.util.Comparator.comparing;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.startsWith;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.when;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.UUID;
+
 import de.bsi.secvisogram.csaf_cms_backend.CouchDBExtension;
 import de.bsi.secvisogram.csaf_cms_backend.config.CsafRoles;
 import de.bsi.secvisogram.csaf_cms_backend.couchdb.*;
