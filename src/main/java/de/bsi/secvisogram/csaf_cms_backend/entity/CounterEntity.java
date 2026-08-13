@@ -1,5 +1,6 @@
 package de.bsi.secvisogram.csaf_cms_backend.entity;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;

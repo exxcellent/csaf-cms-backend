@@ -1,5 +1,6 @@
 package de.bsi.secvisogram.csaf_cms_backend.entity;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -17,6 +18,8 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "comments")
+@SuppressFBWarnings(value = "EI_EXPOSE_REP",
+        justification = "Entity")
 public class CommentEntity {
 
     @Id

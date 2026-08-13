@@ -177,7 +177,7 @@ services:
       # Internal service names, only reachable from inside this container. The values in ../.env
       # (localhost-based) remain correct for running the backend on the host via
       # "./mvnw spring-boot:run" during debugging.
-      CSAF_COUCHDB_HOST: cms-couchdb
+      CSAF_DB_HOST: cms-db
       CSAF_VALIDATION_BASE_URL: "http://validator:8082/api/v1"
       CSAF_OIDC_JWKS_URL: "http://keycloak:8080/realms/${CSAF_REALM}/protocol/openid-connect/certs"
       CSAF_AUTOPUBLISH_URL: "http://reverse-proxy/cgi-bin/csaf_provider.go/api/upload"
@@ -194,7 +194,7 @@ services:
       retries: 10
       start_period: 30s
     depends_on:
-      cms-couchdb:
+      cms-db:
         condition: service_healthy
       keycloak:
         condition: service_healthy
