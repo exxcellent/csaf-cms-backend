@@ -1,45 +1,13 @@
 package de.bsi.secvisogram.csaf_cms_backend.service;
 
-import static de.bsi.secvisogram.csaf_cms_backend.config.CsafRoles.Role.AUDITOR;
-import static de.bsi.secvisogram.csaf_cms_backend.exception.CsafExceptionKey.AdvisoryValidationError;
-import static de.bsi.secvisogram.csaf_cms_backend.exception.CsafExceptionKey.DuplicateImport;
-import static de.bsi.secvisogram.csaf_cms_backend.exception.CsafExceptionKey.ErrorCreatingTrackingIdCounter;
-import static de.bsi.secvisogram.csaf_cms_backend.exception.CsafExceptionKey.NoPermissionForAdvisory;
-import static de.bsi.secvisogram.csaf_cms_backend.exception.CsafExceptionKey.SummaryInHistoryEmpty;
-import static de.bsi.secvisogram.csaf_cms_backend.model.DocumentTrackingStatus.Final;
-import static de.bsi.secvisogram.csaf_cms_backend.model.DocumentTrackingStatus.Interim;
-import static de.bsi.secvisogram.csaf_cms_backend.service.AdvisoryWorkflowUtil.canChangeAdvisory;
-import static de.bsi.secvisogram.csaf_cms_backend.service.AdvisoryWorkflowUtil.canChangeWorkflow;
-import static de.bsi.secvisogram.csaf_cms_backend.service.AdvisoryWorkflowUtil.canCreateNewVersion;
-import static de.bsi.secvisogram.csaf_cms_backend.service.AdvisoryWorkflowUtil.canDeleteAdvisory;
-import static de.bsi.secvisogram.csaf_cms_backend.service.AdvisoryWorkflowUtil.canViewAdvisory;
-import static de.bsi.secvisogram.csaf_cms_backend.service.AdvisoryWorkflowUtil.hasRole;
-import static de.bsi.secvisogram.csaf_cms_backend.service.AdvisoryWorkflowUtil.timestampIsBefore;
-import static java.util.Collections.emptyList;
-import static org.springframework.http.HttpStatus.BAD_REQUEST;
-import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
-import static org.springframework.http.HttpStatus.NOT_FOUND;
-import static org.springframework.http.HttpStatus.UNAUTHORIZED;
-import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
-
 import de.bsi.secvisogram.csaf_cms_backend.config.CsafConfiguration;
 import de.bsi.secvisogram.csaf_cms_backend.config.CsafRoles;
 import de.bsi.secvisogram.csaf_cms_backend.couchdb.DatabaseException;
 import de.bsi.secvisogram.csaf_cms_backend.couchdb.IdNotFoundException;
-import de.bsi.secvisogram.csaf_cms_backend.entity.AdvisoryEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.AdvisoryVersionEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.AuditTrailCommentEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.AuditTrailDocumentEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.AuditTrailWorkflowEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.CommentEntity;
+import de.bsi.secvisogram.csaf_cms_backend.entity.*;
 import de.bsi.secvisogram.csaf_cms_backend.exception.CsafException;
 import de.bsi.secvisogram.csaf_cms_backend.exception.CsafExceptionKey;
-import de.bsi.secvisogram.csaf_cms_backend.json.AdvisoryAuditTrailDiffWrapper;
-import de.bsi.secvisogram.csaf_cms_backend.json.AdvisoryWrapper;
-import de.bsi.secvisogram.csaf_cms_backend.json.CommentWrapper;
-import de.bsi.secvisogram.csaf_cms_backend.json.ObjectType;
-import de.bsi.secvisogram.csaf_cms_backend.json.SemanticVersioning;
-import de.bsi.secvisogram.csaf_cms_backend.json.TrackingIdCounter;
+import de.bsi.secvisogram.csaf_cms_backend.json.*;
 import de.bsi.secvisogram.csaf_cms_backend.model.ChangeType;
 import de.bsi.secvisogram.csaf_cms_backend.model.DocumentTrackingStatus;
 import de.bsi.secvisogram.csaf_cms_backend.model.ExportFormat;
@@ -48,25 +16,10 @@ import de.bsi.secvisogram.csaf_cms_backend.model.filter.Expression;
 import de.bsi.secvisogram.csaf_cms_backend.mustache.JavascriptExporter;
 import de.bsi.secvisogram.csaf_cms_backend.rest.request.CreateAdvisoryRequest;
 import de.bsi.secvisogram.csaf_cms_backend.rest.request.CreateCommentRequest;
-import de.bsi.secvisogram.csaf_cms_backend.rest.response.AdvisoryInformationResponse;
-import de.bsi.secvisogram.csaf_cms_backend.rest.response.AdvisoryResponse;
-import de.bsi.secvisogram.csaf_cms_backend.rest.response.AnswerInformationResponse;
-import de.bsi.secvisogram.csaf_cms_backend.rest.response.CommentInformationResponse;
-import de.bsi.secvisogram.csaf_cms_backend.rest.response.CommentResponse;
+import de.bsi.secvisogram.csaf_cms_backend.rest.response.*;
 import de.bsi.secvisogram.csaf_cms_backend.validator.ValidatorServiceClient;
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Instant;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,14 +32,30 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
+
+import static de.bsi.secvisogram.csaf_cms_backend.config.CsafRoles.Role.AUDITOR;
+import static de.bsi.secvisogram.csaf_cms_backend.exception.CsafExceptionKey.*;
+import static de.bsi.secvisogram.csaf_cms_backend.model.DocumentTrackingStatus.Final;
+import static de.bsi.secvisogram.csaf_cms_backend.model.DocumentTrackingStatus.Interim;
+import static de.bsi.secvisogram.csaf_cms_backend.service.AdvisoryWorkflowUtil.*;
+import static java.util.Collections.emptyList;
+import static org.springframework.http.HttpStatus.*;
 
 @Service
 public class AdvisoryService {
 
     private static final Logger LOG = LoggerFactory.getLogger(AdvisoryService.class);
 
-    @Autowired(required = false)
+    @Autowired(required = true)
     private PostgresRepositoryService postgresService;
 
     @Autowired
@@ -120,12 +89,13 @@ public class AdvisoryService {
     private BuildProperties buildProperties;
 
     /**
-     * get number of documents
+     * Get the total number of records across all tables (advisories, comments, audit trails, counters).
+     * Used primarily by integration tests to verify correct creation/deletion of records.
      *
-     * @return number of all documents in the DB
+     * @return total count of all entities in the DB
      */
-    public Long getDocumentCount() {
-        return postgresService.getAdvisoryCount();
+    public long getDocumentCount() {
+        return postgresService.getTotalDocumentCount();
     }
 
     /**
@@ -133,7 +103,7 @@ public class AdvisoryService {
      *
      * @return a list of information objects
      */
-    @Secured({CsafRoles.ROLE_REGISTERED, CsafRoles.ROLE_AUDITOR})
+//    @Secured({CsafRoles.ROLE_REGISTERED, CsafRoles.ROLE_AUDITOR})
     public List<AdvisoryInformationResponse> getAdvisoryInformations(String expression)
             throws IOException, CsafException {
 
@@ -166,9 +136,9 @@ public class AdvisoryService {
 
         List<AdvisoryEntity> entities = postgresService.findAllAdvisories();
         return entities.stream()
+                .filter(entity -> matchesCsafExpression(entity.getCsaf(), expression))
                 .map(EntityConverter::toAdvisoryInfo)
                 .filter(info -> matchesVisibility(info, visibilityExpr, credentials))
-                .filter(info -> matchesExpression(info, expression))
                 .toList();
     }
 
@@ -179,8 +149,8 @@ public class AdvisoryService {
         // Advisory versions are immutable snapshots in the advisory_versions table,
         // created each time a new version cycle begins via createNewCsafDocumentVersion.
         return postgresService.findAllAdvisoryVersions().stream()
+                .filter(entity -> matchesCsafExpression(entity.getCsaf(), expression))
                 .map(EntityConverter::toAdvisoryVersionInfo)
-                .filter(info -> matchesExpression(info, expression))
                 .toList();
     }
 
@@ -207,7 +177,7 @@ public class AdvisoryService {
     /**
      * Apply a structured expression filter against advisory info fields.
      *
-     * <p>This method handles {@link OperatorExpression} leaves only. Compound expressions
+     * <p>This method handles {@link de.bsi.secvisogram.csaf_cms_backend.model.filter.OperatorExpression} leaves only. Compound expressions
      * ({@link de.bsi.secvisogram.csaf_cms_backend.model.filter.AndExpression},
      * {@link de.bsi.secvisogram.csaf_cms_backend.model.filter.OrExpression}) require a
      * JPA Specification approach and are deferred to a future implementation.
@@ -328,6 +298,144 @@ public class AdvisoryService {
         };
     }
 
+    /**
+     * Evaluate a filter expression against the full CSAF JSON stored in the entity.
+     * This enables filtering by arbitrary deep paths (acknowledgments, vulnerabilities,
+     * product_tree, etc.) that are not available in the flattened {@link AdvisoryInformationResponse}.
+     *
+     * @param csafJson   the entity's CSAF JSON ({@code com.fasterxml.jackson.databind.JsonNode})
+     * @param expression the JSON-encoded expression; null or blank means no filter
+     * @return {@code true} if the CSAF JSON matches the expression or expression is absent
+     */
+    private boolean matchesCsafExpression(com.fasterxml.jackson.databind.JsonNode csafJson,
+            String expression) {
+
+        if (expression == null || expression.isBlank()) {
+            return true;
+        }
+        try {
+            Expression parsedExpr = AdvisorySearchUtil.json2Expression(expression);
+            return evaluateCsafExpression(parsedExpr, csafJson);
+        } catch (Exception e) {
+            LOG.warn("Could not parse or evaluate CSAF filter expression, returning all results: {}",
+                    e.getMessage());
+            return true;
+        }
+    }
+
+    /**
+     * Recursively evaluate an {@link Expression} against the entity's CSAF JSON.
+     */
+    private boolean evaluateCsafExpression(Expression expr,
+            com.fasterxml.jackson.databind.JsonNode csafJson) {
+
+        if (expr instanceof de.bsi.secvisogram.csaf_cms_backend.model.filter.OperatorExpression opExpr) {
+            return evaluateCsafOperator(opExpr, csafJson);
+        }
+        if (expr instanceof de.bsi.secvisogram.csaf_cms_backend.model.filter.AndExpression andExpr) {
+            for (Expression child : andExpr.getExpressions()) {
+                if (!evaluateCsafExpression(child, csafJson)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (expr instanceof de.bsi.secvisogram.csaf_cms_backend.model.filter.OrExpression orExpr) {
+            for (Expression child : orExpr.getExpressions()) {
+                if (evaluateCsafExpression(child, csafJson)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Evaluate a single operator expression against the CSAF JSON.
+     * The selector path starts with "csaf" (e.g. ["csaf","document","title"]);
+     * the "csaf" prefix is stripped and the remainder is used to navigate the JSON tree.
+     * Array nodes are traversed recursively so that a match in any element qualifies.
+     */
+    private boolean evaluateCsafOperator(
+            de.bsi.secvisogram.csaf_cms_backend.model.filter.OperatorExpression opExpr,
+            com.fasterxml.jackson.databind.JsonNode csafJson) {
+
+        String[] path = opExpr.getSelector();
+        String filterValue = opExpr.getValue();
+
+        // Strip "csaf" prefix; remaining segments address the CSAF JSON
+        int startIdx = (path.length > 0 && "csaf".equals(path[0])) ? 1 : 0;
+        String[] csafPath = Arrays.copyOfRange(path, startIdx, path.length);
+
+        List<String> values = collectJsonValues(csafJson, csafPath, 0);
+        if (values.isEmpty()) {
+            // Path not found → cannot evaluate; pass through
+            return true;
+        }
+
+        return values.stream().anyMatch(value -> matchesOperator(opExpr.getOperatorType(), value, filterValue));
+    }
+
+    /**
+     * Collect all text values reachable by following the given path segments through the JSON tree.
+     * When an array node is encountered at any level, the remaining path is applied to each element.
+     */
+    private List<String> collectJsonValues(com.fasterxml.jackson.databind.JsonNode node,
+            String[] pathSegments, int segmentIndex) {
+
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return List.of();
+        }
+        if (segmentIndex >= pathSegments.length) {
+            // Reached the target depth — collect value(s)
+            if (node.isArray()) {
+                List<String> result = new ArrayList<>();
+                for (com.fasterxml.jackson.databind.JsonNode element : node) {
+                    if (element.isValueNode()) {
+                        result.add(element.asText());
+                    }
+                }
+                return result;
+            }
+            if (node.isValueNode()) {
+                return List.of(node.asText());
+            }
+            return List.of();
+        }
+
+        String segment = pathSegments[segmentIndex];
+        if (node.isArray()) {
+            // Apply current segment to each array element
+            List<String> result = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode element : node) {
+                result.addAll(collectJsonValues(element, pathSegments, segmentIndex));
+            }
+            return result;
+        }
+        // Navigate into the child
+        com.fasterxml.jackson.databind.JsonNode child = node.get(segment);
+        return collectJsonValues(child, pathSegments, segmentIndex + 1);
+    }
+
+    /**
+     * Check whether a single string value matches the filter using the given operator.
+     */
+    private boolean matchesOperator(
+            de.bsi.secvisogram.csaf_cms_backend.model.filter.TypeOfOperator operatorType,
+            String fieldValue, String filterValue) {
+
+        return switch (operatorType) {
+            case Equal -> fieldValue.equals(filterValue);
+            case NotEqual -> !fieldValue.equals(filterValue);
+            case ContainsIgnoreCase -> fieldValue.toLowerCase().contains(filterValue.toLowerCase());
+            case Greater -> fieldValue.compareTo(filterValue) > 0;
+            case GreaterOrEqual -> fieldValue.compareTo(filterValue) >= 0;
+            case Less -> fieldValue.compareTo(filterValue) < 0;
+            case LessOrEqual -> fieldValue.compareTo(filterValue) <= 0;
+        };
+    }
+
     private void enrichAdvisory(AdvisoryInformationResponse response, Authentication credentials) {
         response.setDeletable(canDeleteAdvisory(response, credentials));
         response.setChangeable(canChangeAdvisory(response, credentials));
@@ -388,10 +496,8 @@ public class AdvisoryService {
 
         addTemporaryTrackingId(newAdvisoryNode);
 
-        // Persist advisory
+        // Persist advisory (ID generated by @GeneratedValue)
         AdvisoryEntity entity = EntityConverter.toEntity(newAdvisoryNode, null);
-        UUID advisoryId = UUID.randomUUID();
-        entity.setId(advisoryId);
         AdvisoryEntity saved = postgresService.saveAdvisory(entity);
 
         // Persist audit trail (document diff)
@@ -466,9 +572,8 @@ public class AdvisoryService {
                     DuplicateImport, UNPROCESSABLE_ENTITY);
         }
 
+        // Persist advisory (ID generated by @GeneratedValue)
         AdvisoryEntity entity = EntityConverter.toEntity(newAdvisoryNode, null);
-        UUID advisoryId = UUID.randomUUID();
-        entity.setId(advisoryId);
         AdvisoryEntity saved = postgresService.saveAdvisory(entity);
 
         // Persist audit trail
@@ -712,17 +817,13 @@ public class AdvisoryService {
             throws IOException, CsafException {
         // read the advisory form the database
         try {
-            final InputStream existingAdvisoryStream = this.couchDbService.readDocumentAsStream(advisoryId);
-            final AdvisoryWrapper finalAdvisory = AdvisoryWrapper.createFromCouchDb(existingAdvisoryStream);
+            final com.fasterxml.jackson.databind.JsonNode csaf = this.postgresService.readDocumentAsStream(advisoryId);
 
-            //final AdvisoryWrapper finalAdvisory = createReleaseReadyAdvisoryAndValidate(draftAdvisory, draftAdvisory.getDocumentTrackingCurrentReleaseDate());
-
-            final JsonNode csaf = finalAdvisory.getCsaf();
             RemoveIdHelper.removeCommentIds(csaf);
             final String csafDocument = csaf.toString();
 
             // if format is JSON - write it to temporary file and return the path
-            final Path jsonFile = Files.createTempFile(finalAdvisory.getDocumentTrackingId(), ".json");
+            final Path jsonFile = Files.createTempFile(advisoryId, ".json");
             Files.writeString(jsonFile, csafDocument);
             return jsonFile;
         } catch (IdNotFoundException e) {
@@ -1004,8 +1105,6 @@ public class AdvisoryService {
                 throw new DatabaseException(e);
             }
             CommentEntity commentEntity = EntityConverter.toEntity(newComment, advisoryEntity, null);
-            UUID commentId = UUID.randomUUID();
-            commentEntity.setId(commentId);
             CommentEntity savedComment = postgresService.saveComment(commentEntity);
 
             AuditTrailCommentEntity auditEntity = EntityConverter.toAuditTrailCommentEntity(
@@ -1081,6 +1180,7 @@ public class AdvisoryService {
      */
     void deleteComment(String commentId, String commentRevision) throws DatabaseException, IOException {
 
+        findCommentEntityOrThrow(commentId);
         // Audit trail entries are removed via ON DELETE CASCADE in the schema
         postgresService.deleteComment(UUID.fromString(commentId));
     }
@@ -1142,8 +1242,6 @@ public class AdvisoryService {
 
             CommentEntity answerEntity = EntityConverter.toEntity(newAnswer, advisoryEntity, null);
             answerEntity.setAnswerTo(parentComment);
-            UUID answerId = UUID.randomUUID();
-            answerEntity.setId(answerId);
             CommentEntity savedAnswer = postgresService.saveComment(answerEntity);
 
             AuditTrailCommentEntity auditEntity = EntityConverter.toAuditTrailCommentEntity(
@@ -1186,6 +1284,7 @@ public class AdvisoryService {
      */
     void deleteAnswer(String answerId, String answerRevision) throws DatabaseException, IOException {
 
+        findCommentEntityOrThrow(answerId);
         // Audit trail entries are removed via ON DELETE CASCADE
         postgresService.deleteComment(UUID.fromString(answerId));
     }

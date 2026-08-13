@@ -1,29 +1,19 @@
 package de.bsi.secvisogram.csaf_cms_backend.service;
 
-import de.bsi.secvisogram.csaf_cms_backend.entity.AdvisoryEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.AdvisoryVersionEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.AuditTrailCommentEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.AuditTrailDocumentEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.AuditTrailWorkflowEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.CommentEntity;
-import de.bsi.secvisogram.csaf_cms_backend.entity.CounterEntity;
-import de.bsi.secvisogram.csaf_cms_backend.repository.AdvisoryRepository;
-import de.bsi.secvisogram.csaf_cms_backend.repository.AdvisoryVersionRepository;
-import de.bsi.secvisogram.csaf_cms_backend.repository.AuditTrailCommentRepository;
-import de.bsi.secvisogram.csaf_cms_backend.repository.AuditTrailDocumentRepository;
-import de.bsi.secvisogram.csaf_cms_backend.repository.AuditTrailWorkflowRepository;
-import de.bsi.secvisogram.csaf_cms_backend.repository.CommentRepository;
-import de.bsi.secvisogram.csaf_cms_backend.repository.CounterRepository;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import javax.sql.DataSource;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import com.fasterxml.jackson.databind.JsonNode;
+import de.bsi.secvisogram.csaf_cms_backend.couchdb.IdNotFoundException;
+import de.bsi.secvisogram.csaf_cms_backend.entity.*;
+import de.bsi.secvisogram.csaf_cms_backend.repository.*;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Bridge service that wraps the JPA repositories and provides a single access point
@@ -32,7 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
  * be migrated incrementally without exposing individual repositories directly.
  */
 @Service
-@ConditionalOnBean(DataSource.class)
+@SuppressFBWarnings(value = "EI_EXPOSE_REP2",
+        justification = "Entity")
 public class PostgresRepositoryService {
 
     private final AdvisoryRepository advisoryRepository;
@@ -139,6 +130,23 @@ public class PostgresRepositoryService {
      */
     public long getAdvisoryCount() {
         return advisoryRepository.count();
+    }
+
+    /**
+     * Return the total number of documents across all tables.
+     * This is primarily used by integration tests to verify that the expected number of records
+     * are created/deleted across all entity types (advisories, comments, audit trails, counters).
+     *
+     * @return total count of all entities
+     */
+    public long getTotalDocumentCount() {
+        return advisoryRepository.count()
+                + advisoryVersionRepository.count()
+                + auditTrailDocumentRepository.count()
+                + auditTrailWorkflowRepository.count()
+                + commentRepository.count()
+                + auditTrailCommentRepository.count()
+                + counterRepository.count();
     }
 
     // --- Advisory Version operations ---
@@ -361,5 +369,24 @@ public class PostgresRepositoryService {
                     "Counter '" + counterId + "' could not be incremented after creation");
         }
         return retried;
+    }
+
+    /**
+     * Read a document from the database as stream
+     *
+     * @param uuid id of the document to read
+     * @return the requested document as stream
+     * @throws IdNotFoundException if the requested document was not found
+     */
+    public JsonNode readDocumentAsStream(final String uuid) throws IdNotFoundException {
+
+        Optional<AdvisoryEntity> optionalEntity = this.findAdvisoryById(UUID.fromString(uuid));
+
+        if (optionalEntity.isEmpty()) {
+            throw new IdNotFoundException("Advisory not found");
+        } else {
+            return optionalEntity.get().getCsaf();
+        }
+
     }
 }

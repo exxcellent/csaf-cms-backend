@@ -6,10 +6,19 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.util.StringUtils;
 
-@SpringBootTest(properties = "csaf.document.templates.companyLogoPath=")
+import de.bsi.secvisogram.csaf_cms_backend.service.PostgresRepositoryService;
+
+@SpringBootTest(properties = {
+        "csaf.document.templates.companyLogoPath=",
+        "spring.autoconfigure.exclude=org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration,org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration"
+})
 class JavascriptExporterNoLogoTest {
+
+    @MockitoBean
+    private PostgresRepositoryService postgresRepositoryService;
 
     private static final String json = """
             {
