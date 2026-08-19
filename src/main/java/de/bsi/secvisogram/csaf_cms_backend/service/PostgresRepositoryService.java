@@ -1,6 +1,5 @@
 package de.bsi.secvisogram.csaf_cms_backend.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import de.bsi.secvisogram.csaf_cms_backend.couchdb.IdNotFoundException;
 import de.bsi.secvisogram.csaf_cms_backend.entity.*;
 import de.bsi.secvisogram.csaf_cms_backend.repository.*;
@@ -10,6 +9,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 import java.util.List;
 import java.util.Optional;
@@ -22,8 +22,7 @@ import java.util.UUID;
  * be migrated incrementally without exposing individual repositories directly.
  */
 @Service
-@SuppressFBWarnings(value = "EI_EXPOSE_REP2",
-        justification = "Entity")
+@SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Spring DI")
 public class PostgresRepositoryService {
 
     private final AdvisoryRepository advisoryRepository;
@@ -68,10 +67,10 @@ public class PostgresRepositoryService {
      * Persist a new advisory or update an existing one.
      *
      * @param entity the advisory entity to save
-     * @return the saved entity (with generated ID if new)
+     * @return the saved entity (with generated ID if new), with an up-to-date {@code version}
      */
     public AdvisoryEntity saveAdvisory(AdvisoryEntity entity) {
-        return advisoryRepository.save(entity);
+        return advisoryRepository.saveAndFlush(entity);
     }
 
     /**
@@ -111,6 +110,16 @@ public class PostgresRepositoryService {
     @Transactional
     public void deleteAdvisory(UUID id) {
         advisoryRepository.deleteById(id);
+    }
+
+    /**
+     * Delete the advisory.
+     *
+     * @param entity the advisory to delete
+     */
+    @Transactional
+    public void deleteAdvisory(AdvisoryEntity entity) {
+        advisoryRepository.delete(entity);
     }
 
     /**
@@ -250,10 +259,10 @@ public class PostgresRepositoryService {
      * Persist a new comment or update an existing one.
      *
      * @param entity the comment entity to save
-     * @return the saved entity
+     * @return the saved entity, with an up-to-date {@code version}
      */
     public CommentEntity saveComment(CommentEntity entity) {
-        return commentRepository.save(entity);
+        return commentRepository.saveAndFlush(entity);
     }
 
     /**
@@ -294,6 +303,16 @@ public class PostgresRepositoryService {
     @Transactional
     public void deleteComment(UUID id) {
         commentRepository.deleteById(id);
+    }
+
+    /**
+     * Delete the comment.
+     *
+     * @param entity the comment entity to delete
+     */
+    @Transactional
+    public void deleteComment(CommentEntity entity) {
+        commentRepository.delete(entity);
     }
 
     /**
@@ -372,13 +391,13 @@ public class PostgresRepositoryService {
     }
 
     /**
-     * Read a document from the database as stream
+     * Read a document from the database as JsonNode
      *
      * @param uuid id of the document to read
-     * @return the requested document as stream
+     * @return the requested document as JsonNode
      * @throws IdNotFoundException if the requested document was not found
      */
-    public JsonNode readDocumentAsStream(final String uuid) throws IdNotFoundException {
+    public JsonNode readDocumentAsJsonNode(final String uuid) throws IdNotFoundException {
 
         Optional<AdvisoryEntity> optionalEntity = this.findAdvisoryById(UUID.fromString(uuid));
 

@@ -25,12 +25,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.info.BuildProperties;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.annotation.Secured;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
 import java.io.IOException;
@@ -55,7 +57,7 @@ public class AdvisoryService {
 
     private static final Logger LOG = LoggerFactory.getLogger(AdvisoryService.class);
 
-    @Autowired(required = true)
+    @Autowired
     private PostgresRepositoryService postgresService;
 
     @Autowired
@@ -103,15 +105,16 @@ public class AdvisoryService {
      *
      * @return a list of information objects
      */
-//    @Secured({CsafRoles.ROLE_REGISTERED, CsafRoles.ROLE_AUDITOR})
+    @Secured({CsafRoles.ROLE_REGISTERED, CsafRoles.ROLE_AUDITOR})
     public List<AdvisoryInformationResponse> getAdvisoryInformations(String expression)
             throws IOException, CsafException {
 
         Authentication credentials = getAuthentication();
+        Expression parsedExpr = parseFilterExpression(expression);
 
         Expression visibilityExpr = AdvisoryWorkflowUtil.buildVisibilityExpression(credentials);
         List<AdvisoryInformationResponse> allAdvisories =
-                readAllAdvisories(expression, ObjectType.Advisory, visibilityExpr, credentials);
+                readAllAdvisories(parsedExpr, ObjectType.Advisory, visibilityExpr, credentials);
         for (AdvisoryInformationResponse response : allAdvisories) {
             enrichAdvisory(response, credentials);
         }
@@ -119,7 +122,7 @@ public class AdvisoryService {
 
         if (hasRole(AUDITOR, credentials)) {
             List<AdvisoryInformationResponse> allAdvisoryVersions =
-                    readAllAdvisoryVersions(expression, credentials);
+                    readAllAdvisoryVersions(parsedExpr, credentials);
             for (AdvisoryInformationResponse response : allAdvisoryVersions) {
                 enrichAdvisoryVersion(response);
             }
@@ -128,28 +131,39 @@ public class AdvisoryService {
         return allResponses;
     }
 
+    private Expression parseFilterExpression(String expression) throws CsafException {
+        if (expression == null || expression.isBlank()) {
+            return null;
+        }
+        try {
+            return AdvisorySearchUtil.json2Expression(expression);
+        } catch (Exception e) {
+            throw new CsafException("Invalid filter expression", InvalidFilterExpression, BAD_REQUEST);
+        }
+    }
+
     private List<AdvisoryInformationResponse> readAllAdvisories(
-            String expression,
+            Expression parsedExpr,
             ObjectType objectType,
             Expression visibilityExpr,
             Authentication credentials) {
 
         List<AdvisoryEntity> entities = postgresService.findAllAdvisories();
         return entities.stream()
-                .filter(entity -> matchesCsafExpression(entity.getCsaf(), expression))
+                .filter(entity -> matchesCsafExpression(entity.getCsaf(), parsedExpr))
                 .map(EntityConverter::toAdvisoryInfo)
                 .filter(info -> matchesVisibility(info, visibilityExpr, credentials))
                 .toList();
     }
 
     private List<AdvisoryInformationResponse> readAllAdvisoryVersions(
-            String expression,
+            Expression parsedExpr,
             Authentication credentials) {
 
         // Advisory versions are immutable snapshots in the advisory_versions table,
         // created each time a new version cycle begins via createNewCsafDocumentVersion.
         return postgresService.findAllAdvisoryVersions().stream()
-                .filter(entity -> matchesCsafExpression(entity.getCsaf(), expression))
+                .filter(entity -> matchesCsafExpression(entity.getCsaf(), parsedExpr))
                 .map(EntityConverter::toAdvisoryVersionInfo)
                 .toList();
     }
@@ -198,8 +212,8 @@ public class AdvisoryService {
             Expression parsedExpr = AdvisorySearchUtil.json2Expression(expression);
             return evaluateExpression(parsedExpr, info);
         } catch (Exception e) {
-            LOG.warn("Could not parse or evaluate filter expression, returning all results: {}", e.getMessage());
-            return true;
+            LOG.warn("Could not parse or evaluate filter expression, excluding from results: {}", e.getMessage());
+            return false;
         }
     }
 
@@ -299,35 +313,30 @@ public class AdvisoryService {
     }
 
     /**
-     * Evaluate a filter expression against the full CSAF JSON stored in the entity.
+     * Check whether the entity's full CSAF JSON matches an already-parsed filter expression.
      * This enables filtering by arbitrary deep paths (acknowledgments, vulnerabilities,
      * product_tree, etc.) that are not available in the flattened {@link AdvisoryInformationResponse}.
      *
-     * @param csafJson   the entity's CSAF JSON ({@code com.fasterxml.jackson.databind.JsonNode})
-     * @param expression the JSON-encoded expression; null or blank means no filter
-     * @return {@code true} if the CSAF JSON matches the expression or expression is absent
+     * <p>The expression is parsed once, up front, by {@link #parseFilterExpression} rather than
+     * per entity here: a malformed expression must be rejected with a proper error, and a
+     * checked {@link CsafException} cannot be thrown from inside a stream {@code Predicate}.</p>
+     *
+     * @param csafJson   the entity's CSAF JSON ({@code JsonNode})
+     * @param parsedExpr the already-parsed expression, or {@code null} when no filter was supplied
+     * @return {@code true} if the CSAF JSON matches the expression or no expression was supplied
      */
-    private boolean matchesCsafExpression(com.fasterxml.jackson.databind.JsonNode csafJson,
-            String expression) {
+    private boolean matchesCsafExpression(JsonNode csafJson, Expression parsedExpr) {
 
-        if (expression == null || expression.isBlank()) {
+        if (parsedExpr == null) {
             return true;
         }
-        try {
-            Expression parsedExpr = AdvisorySearchUtil.json2Expression(expression);
-            return evaluateCsafExpression(parsedExpr, csafJson);
-        } catch (Exception e) {
-            LOG.warn("Could not parse or evaluate CSAF filter expression, returning all results: {}",
-                    e.getMessage());
-            return true;
-        }
+        return evaluateCsafExpression(parsedExpr, csafJson);
     }
 
     /**
      * Recursively evaluate an {@link Expression} against the entity's CSAF JSON.
      */
-    private boolean evaluateCsafExpression(Expression expr,
-            com.fasterxml.jackson.databind.JsonNode csafJson) {
+    private boolean evaluateCsafExpression(Expression expr, JsonNode csafJson) {
 
         if (expr instanceof de.bsi.secvisogram.csaf_cms_backend.model.filter.OperatorExpression opExpr) {
             return evaluateCsafOperator(opExpr, csafJson);
@@ -359,7 +368,7 @@ public class AdvisoryService {
      */
     private boolean evaluateCsafOperator(
             de.bsi.secvisogram.csaf_cms_backend.model.filter.OperatorExpression opExpr,
-            com.fasterxml.jackson.databind.JsonNode csafJson) {
+            JsonNode csafJson) {
 
         String[] path = opExpr.getSelector();
         String filterValue = opExpr.getValue();
@@ -381,8 +390,7 @@ public class AdvisoryService {
      * Collect all text values reachable by following the given path segments through the JSON tree.
      * When an array node is encountered at any level, the remaining path is applied to each element.
      */
-    private List<String> collectJsonValues(com.fasterxml.jackson.databind.JsonNode node,
-            String[] pathSegments, int segmentIndex) {
+    private List<String> collectJsonValues(JsonNode node, String[] pathSegments, int segmentIndex) {
 
         if (node == null || node.isMissingNode() || node.isNull()) {
             return List.of();
@@ -391,7 +399,7 @@ public class AdvisoryService {
             // Reached the target depth — collect value(s)
             if (node.isArray()) {
                 List<String> result = new ArrayList<>();
-                for (com.fasterxml.jackson.databind.JsonNode element : node) {
+                for (JsonNode element : node) {
                     if (element.isValueNode()) {
                         result.add(element.asText());
                     }
@@ -408,13 +416,13 @@ public class AdvisoryService {
         if (node.isArray()) {
             // Apply current segment to each array element
             List<String> result = new ArrayList<>();
-            for (com.fasterxml.jackson.databind.JsonNode element : node) {
+            for (JsonNode element : node) {
                 result.addAll(collectJsonValues(element, pathSegments, segmentIndex));
             }
             return result;
         }
         // Navigate into the child
-        com.fasterxml.jackson.databind.JsonNode child = node.get(segment);
+        JsonNode child = node.get(segment);
         return collectJsonValues(child, pathSegments, segmentIndex + 1);
     }
 
@@ -474,6 +482,7 @@ public class AdvisoryService {
         return addAdvisoryForCredentials(newCsafJson, credentials);
     }
 
+    @Transactional
     IdAndRevision addAdvisoryForCredentials(CreateAdvisoryRequest newCsafJson, Authentication credentials)
             throws IOException, CsafException {
 
@@ -549,6 +558,7 @@ public class AdvisoryService {
         return importAdvisoryForUser(nodeToImport, "_SYSTEM_IMPORT_");
     }
 
+    @Transactional
     IdAndRevision importAdvisoryForUser(JsonNode nodeToImport, String userName) throws IOException, CsafException {
 
         if (!ValidatorServiceClient.isCsafValid(this.validationBaseUrl, nodeToImport)) {
@@ -574,7 +584,15 @@ public class AdvisoryService {
 
         // Persist advisory (ID generated by @GeneratedValue)
         AdvisoryEntity entity = EntityConverter.toEntity(newAdvisoryNode, null);
-        AdvisoryEntity saved = postgresService.saveAdvisory(entity);
+        AdvisoryEntity saved;
+        try {
+            saved = postgresService.saveAdvisory(entity);
+        } catch (DataIntegrityViolationException e) {
+            // in case of race condition the unique index on tracking-id would be the one avoiding inserting
+            // CSAF doc with duplicated tracking-id
+            throw new CsafException("Trying to import a duplicate advisory (identical tracking ID)",
+                    DuplicateImport, UNPROCESSABLE_ENTITY);
+        }
 
         // Persist audit trail
         AdvisoryAuditTrailDiffWrapper diffWrapper =
@@ -669,13 +687,15 @@ public class AdvisoryService {
      * @param revision   the revision for concurrent control
      */
     @Secured({CsafRoles.ROLE_AUTHOR})
+    @Transactional
     public void deleteAdvisory(String advisoryId, String revision) throws DatabaseException, IOException, CsafException {
 
         LOG.debug("deleteAdvisory");
         AdvisoryEntity entity = findAdvisoryEntityOrThrow(advisoryId);
         AdvisoryWrapper advisory = EntityConverter.toWrapper(entity);
         if (canDeleteAdvisory(advisory, getAuthentication())) {
-            postgresService.deleteAdvisory(UUID.fromString(advisoryId));
+            checkAdvisoryRevision(entity, revision);
+            postgresService.deleteAdvisory(entity);
         } else {
             throw new AccessDeniedException("User has not the permission to delete the advisory");
         }
@@ -688,6 +708,7 @@ public class AdvisoryService {
      * @return the new revision of the updated csaf document
      * @throws DatabaseException if there was an error updating the advisory in the DB
      */
+    @Transactional
     public String updateAdvisory(String advisoryId, String revision, CreateAdvisoryRequest changedCsafJson)
             throws IOException, DatabaseException, CsafException {
 
@@ -697,6 +718,7 @@ public class AdvisoryService {
 
         Authentication credentials = getAuthentication();
         if (canChangeAdvisory(oldAdvisoryNode, credentials)) {
+            checkAdvisoryRevision(existingEntity, revision);
 
             if (changedCsafJson.getSummary() == null || changedCsafJson.getSummary().isBlank()) {
                 throw new CsafException("Summary must not be empty", SummaryInHistoryEmpty, UNPROCESSABLE_ENTITY);
@@ -817,7 +839,7 @@ public class AdvisoryService {
             throws IOException, CsafException {
         // read the advisory form the database
         try {
-            final com.fasterxml.jackson.databind.JsonNode csaf = this.postgresService.readDocumentAsStream(advisoryId);
+            final JsonNode csaf = this.postgresService.readDocumentAsJsonNode(advisoryId);
 
             RemoveIdHelper.removeCommentIds(csaf);
             final String csafDocument = csaf.toString();
@@ -842,6 +864,7 @@ public class AdvisoryService {
      * @param documentTrackingStatus  optional new document tracking status
      * @return the new revision of the updated csaf document
      */
+    @Transactional
     public String changeAdvisoryWorkflowState(String advisoryId, String revision,
             WorkflowState newWorkflowState, String proposedTime,
             DocumentTrackingStatus documentTrackingStatus)
@@ -853,6 +876,7 @@ public class AdvisoryService {
 
         final var allowOwnDocumentsApproved = configuration.getWorkflow().isAllowOwnDocumentsApproved();
         if (canChangeWorkflow(existingAdvisoryNode, newWorkflowState, credentials, allowOwnDocumentsApproved)) {
+            checkAdvisoryRevision(existingEntity, revision);
 
             WorkflowState previousWorkflowState = existingAdvisoryNode.getWorkflowState();
             String previousVersion = existingAdvisoryNode.getDocumentTrackingVersion();
@@ -1024,6 +1048,7 @@ public class AdvisoryService {
      * @param revision   the revision for concurrent control
      * @return the revision of the updated CSAF document
      */
+    @Transactional
     public String createNewCsafDocumentVersion(String advisoryId, String revision)
             throws IOException, DatabaseException, CsafException {
 
@@ -1033,6 +1058,7 @@ public class AdvisoryService {
         AdvisoryWrapper existingAdvisoryNode = EntityConverter.toWrapper(existingEntity);
 
         if (canCreateNewVersion(existingAdvisoryNode, credentials)) {
+            checkAdvisoryRevision(existingEntity, revision);
 
             // Persist a version snapshot of the current Published state
             AdvisoryWrapper advisoryVersionBackup = AdvisoryWrapper.createVersionFrom(existingAdvisoryNode);
@@ -1086,6 +1112,7 @@ public class AdvisoryService {
      * @return a tuple of ID and revision of the added comment
      */
     @Secured({CsafRoles.ROLE_AUTHOR, CsafRoles.ROLE_REVIEWER})
+    @Transactional
     public IdAndRevision addComment(String advisoryId, CreateCommentRequest comment)
             throws DatabaseException, CsafException {
 
@@ -1111,7 +1138,7 @@ public class AdvisoryService {
                     savedComment, credentials.getName(), ChangeType.Create, newComment.getText());
             postgresService.saveAuditTrailComment(auditEntity);
 
-            return new IdAndRevision(savedComment.getId().toString(), "0");
+            return new IdAndRevision(savedComment.getId().toString(), String.valueOf(savedComment.getVersion()));
         } else {
             throw new AccessDeniedException("User has not the permission to add a comment to the advisory");
         }
@@ -1136,7 +1163,7 @@ public class AdvisoryService {
                     ? commentEntity.getAnswerTo().getId().toString() : null;
             return new CommentResponse(
                     commentId,
-                    "0",
+                    String.valueOf(commentEntity.getVersion()),
                     advisoryId,
                     commentEntity.getOwner(),
                     commentEntity.getCommentText(),
@@ -1164,7 +1191,6 @@ public class AdvisoryService {
 
         if (AdvisoryWorkflowUtil.canViewComment(advisoryInfo, credentials)) {
             return postgresService.findCommentsByAdvisoryId(UUID.fromString(advisoryId)).stream()
-                    .filter(c -> c.getAnswerTo() == null)
                     .map(EntityConverter::toCommentInfo)
                     .toList();
         } else {
@@ -1178,11 +1204,13 @@ public class AdvisoryService {
      * @param commentId       the ID of the comment to remove
      * @param commentRevision the comment's revision for concurrent control
      */
-    void deleteComment(String commentId, String commentRevision) throws DatabaseException, IOException {
+    @Transactional
+    void deleteComment(String commentId, String commentRevision) throws DatabaseException, IOException, CsafException {
 
-        findCommentEntityOrThrow(commentId);
+        CommentEntity entity = findCommentEntityOrThrow(commentId);
+        checkCommentRevision(entity, commentRevision);
         // Audit trail entries are removed via ON DELETE CASCADE in the schema
-        postgresService.deleteComment(UUID.fromString(commentId));
+        postgresService.deleteComment(entity);
     }
 
     /**
@@ -1194,6 +1222,7 @@ public class AdvisoryService {
      * @return the new revision of the updated comment
      */
     @Secured({CsafRoles.ROLE_AUTHOR, CsafRoles.ROLE_REVIEWER})
+    @Transactional
     public String updateComment(String advisoryId, String commentId, String revision, String newText)
             throws IOException, DatabaseException, CsafException {
 
@@ -1203,6 +1232,7 @@ public class AdvisoryService {
         if (commentOwner == null || !commentOwner.equals(credentials.getName())) {
             throw new AccessDeniedException("User has not the permission to change the comment");
         }
+        checkCommentRevision(commentEntity, revision);
         commentEntity.setCommentText(newText);
         CommentEntity saved = postgresService.saveComment(commentEntity);
 
@@ -1210,7 +1240,7 @@ public class AdvisoryService {
                 saved, credentials.getName(), ChangeType.Update, newText);
         postgresService.saveAuditTrailComment(auditEntity);
 
-        return "0";
+        return String.valueOf(saved.getVersion());
     }
 
     /**
@@ -1221,6 +1251,7 @@ public class AdvisoryService {
      * @return a tuple of ID and revision of the added comment
      */
     @Secured({CsafRoles.ROLE_AUTHOR, CsafRoles.ROLE_REVIEWER})
+    @Transactional
     public IdAndRevision addAnswer(String advisoryId, String commentId, String commentText)
             throws DatabaseException, CsafException {
 
@@ -1248,7 +1279,7 @@ public class AdvisoryService {
                     savedAnswer, credentials.getName(), ChangeType.Create, commentText);
             postgresService.saveAuditTrailComment(auditEntity);
 
-            return new IdAndRevision(savedAnswer.getId().toString(), "0");
+            return new IdAndRevision(savedAnswer.getId().toString(), String.valueOf(savedAnswer.getVersion()));
         } else {
             throw new AccessDeniedException("User has not the permission to add a comment to the advisory");
         }
@@ -1282,9 +1313,11 @@ public class AdvisoryService {
      * @param answerId       the ID of the comment to remove
      * @param answerRevision the comment's revision for concurrent control
      */
-    void deleteAnswer(String answerId, String answerRevision) throws DatabaseException, IOException {
+    @Transactional
+    void deleteAnswer(String answerId, String answerRevision) throws DatabaseException, IOException, CsafException {
 
-        findCommentEntityOrThrow(answerId);
+        CommentEntity entity = findCommentEntityOrThrow(answerId);
+        checkCommentRevision(entity, answerRevision);
         // Audit trail entries are removed via ON DELETE CASCADE
         postgresService.deleteComment(UUID.fromString(answerId));
     }
@@ -1332,6 +1365,40 @@ public class AdvisoryService {
                     .orElseThrow(() -> new IdNotFoundException("Comment not found: " + commentId));
         } catch (IllegalArgumentException e) {
             throw new IdNotFoundException("Invalid comment ID format: " + commentId);
+        }
+    }
+
+    /**
+     * Verify that the client-supplied revision still matches the advisory's current
+     * optimistic-lock version before allowing a mutation to proceed.
+     *
+     * @param entity   the freshly loaded advisory entity
+     * @param revision the revision the client last saw
+     * @throws CsafException with {@link CsafExceptionKey#CsafHasWrongRevision} (HTTP 409) if the
+     *                        advisory was changed by someone else in the meantime
+     */
+    private void checkAdvisoryRevision(AdvisoryEntity entity, String revision) throws CsafException {
+        if (!String.valueOf(entity.getVersion()).equals(revision)) {
+            throw new CsafException(
+                    "The advisory was changed by someone else in the meantime, please reload and try again",
+                    CsafHasWrongRevision, CONFLICT);
+        }
+    }
+
+    /**
+     * Verify that the client-supplied revision still matches the comment's current
+     * optimistic-lock version before allowing a mutation to proceed.
+     *
+     * @param entity   the freshly loaded comment entity
+     * @param revision the revision the client last saw
+     * @throws CsafException with {@link CsafExceptionKey#CsafHasWrongRevision} (HTTP 409) if the
+     *                        comment was changed by someone else in the meantime
+     */
+    private void checkCommentRevision(CommentEntity entity, String revision) throws CsafException {
+        if (!String.valueOf(entity.getVersion()).equals(revision)) {
+            throw new CsafException(
+                    "The comment was changed by someone else in the meantime, please reload and try again",
+                    CsafHasWrongRevision, CONFLICT);
         }
     }
 
