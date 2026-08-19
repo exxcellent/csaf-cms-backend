@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -26,11 +27,6 @@ import tools.jackson.databind.node.ObjectNode;
  * Utility class for converting between JPA entities and the domain wrapper objects
  * used by the service layer. Bridges the gap between the JPA persistence model and
  * the JSON-centric wrapper model used during the migration from CouchDB.
- *
- * <p>The entity layer stores CSAF content as {@code com.fasterxml.jackson.databind.JsonNode}
- * (Jackson 2, required by Hibernate), while the wrapper layer uses
- * {@code tools.jackson.databind.JsonNode} (Jackson 3, bundled with Spring Boot 4).
- * Conversion between these types goes through a JSON string serialisation round-trip.</p>
  */
 public final class EntityConverter {
 
@@ -46,7 +42,7 @@ public final class EntityConverter {
      * Build an {@link AdvisoryWrapper} from a persisted {@link AdvisoryEntity}.
      *
      * <p>The wrapper node is constructed to be structurally identical to what
-     * {@code AdvisoryWrapper.createFromCouchDb} would produce, with synthetic
+     * {@code AdvisoryWrapper.createFromStream} would produce, with synthetic
      * {@code _id} and {@code _rev} fields populated from the entity's primary key
      * and optimistic-lock version respectively.</p>
      *
@@ -57,17 +53,15 @@ public final class EntityConverter {
      */
     public static AdvisoryWrapper toWrapper(AdvisoryEntity entity) throws IOException, CsafException {
 
-        tools.jackson.databind.ObjectMapper mapper = new JsonMapper();
+        ObjectMapper mapper = new JsonMapper();
         ObjectNode node = mapper.createObjectNode();
         node.put("_id", entity.getId().toString());
         node.put("_rev", String.valueOf(entity.getVersion()));
         node.put("type", "Advisory");
         node.put("workflowState", entity.getWorkflowState());
         node.put("owner", entity.getOwner());
-        // Bridge Jackson 2 -> Jackson 3 via string round-trip
         if (entity.getCsaf() != null) {
-            JsonNode csafNode = mapper.readValue(entity.getCsaf().toString(), JsonNode.class);
-            node.set("csaf", csafNode);
+            node.set("csaf", entity.getCsaf());
         }
         node.put("versioningType", entity.getVersioningType());
         if (entity.getLastMajorVersion() != null) {
@@ -81,7 +75,7 @@ public final class EntityConverter {
         }
 
         String json = node.toString();
-        return AdvisoryWrapper.createFromCouchDb(
+        return AdvisoryWrapper.createFromStream(
                 new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
     }
 
@@ -95,15 +89,14 @@ public final class EntityConverter {
      */
     public static AdvisoryWrapper toWrapper(AdvisoryVersionEntity entity) throws IOException, CsafException {
 
-        tools.jackson.databind.ObjectMapper mapper = new JsonMapper();
+        ObjectMapper mapper = new JsonMapper();
         ObjectNode node = mapper.createObjectNode();
         node.put("_id", entity.getId().toString());
         node.put("type", "AdvisoryVersion");
         node.put("workflowState", entity.getWorkflowState());
         node.put("owner", entity.getOwner());
         if (entity.getCsaf() != null) {
-            JsonNode csafNode = mapper.readValue(entity.getCsaf().toString(), JsonNode.class);
-            node.set("csaf", csafNode);
+            node.set("csaf", entity.getCsaf());
         }
         node.put("versioningType", entity.getVersioningType());
         if (entity.getLastMajorVersion() != null) {
@@ -117,7 +110,7 @@ public final class EntityConverter {
         }
 
         String json = node.toString();
-        return AdvisoryWrapper.createFromCouchDb(
+        return AdvisoryWrapper.createFromStream(
                 new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
     }
 
@@ -140,9 +133,8 @@ public final class EntityConverter {
         }
         entity.setWorkflowState(wrapper.getWorkflowStateString());
         entity.setOwner(wrapper.getOwner());
-        // Bridge Jackson 3 -> Jackson 2 via string round-trip
         if (wrapper.getCsaf() != null) {
-            entity.setCsaf(toFasterxmlNode(wrapper.getCsaf()));
+            entity.setCsaf(wrapper.getCsaf());
         }
         entity.setVersioningType(wrapper.getVersioningType());
         entity.setLastMajorVersion(wrapper.getLastVersion());
@@ -167,7 +159,7 @@ public final class EntityConverter {
         entity.setWorkflowState(versionWrapper.getWorkflowStateString());
         entity.setOwner(versionWrapper.getOwner());
         if (versionWrapper.getCsaf() != null) {
-            entity.setCsaf(toFasterxmlNode(versionWrapper.getCsaf()));
+            entity.setCsaf(versionWrapper.getCsaf());
         }
         entity.setVersioningType(versionWrapper.getVersioningType());
         entity.setLastMajorVersion(versionWrapper.getLastVersion());
@@ -214,29 +206,23 @@ public final class EntityConverter {
      */
     public static AdvisoryInformationResponse toAdvisoryInfo(AdvisoryEntity entity) {
 
-        tools.jackson.databind.ObjectMapper mapper = new JsonMapper();
         AdvisoryInformationResponse response = new AdvisoryInformationResponse(entity.getId().toString());
         response.setRevision(String.valueOf(entity.getVersion()));
         response.setWorkflowState(entity.getWorkflowState());
         response.setOwner(entity.getOwner());
-        if (entity.getCsaf() != null) {
-            // Extract title and trackingId from CSAF JSON
-            try {
-                JsonNode csafNode = mapper.readValue(entity.getCsaf().toString(), JsonNode.class);
-                JsonNode titleNode = csafNode.at("/document/title");
-                if (!titleNode.isMissingNode()) {
-                    response.setTitle(titleNode.asString());
-                }
-                JsonNode trackingIdNode = csafNode.at("/document/tracking/id");
-                if (!trackingIdNode.isMissingNode()) {
-                    response.setDocumentTrackingId(trackingIdNode.asString());
-                }
-                JsonNode releaseDateNode = csafNode.at("/document/tracking/current_release_date");
-                if (!releaseDateNode.isMissingNode()) {
-                    response.setCurrentReleaseDate(releaseDateNode.asString());
-                }
-            } catch (Exception e) {
-                // non-fatal: leave title and tracking id blank
+        JsonNode csafNode = entity.getCsaf();
+        if (csafNode != null) {
+            JsonNode titleNode = csafNode.at("/document/title");
+            if (!titleNode.isMissingNode()) {
+                response.setTitle(titleNode.asString());
+            }
+            JsonNode trackingIdNode = csafNode.at("/document/tracking/id");
+            if (!trackingIdNode.isMissingNode()) {
+                response.setDocumentTrackingId(trackingIdNode.asString());
+            }
+            JsonNode releaseDateNode = csafNode.at("/document/tracking/current_release_date");
+            if (!releaseDateNode.isMissingNode()) {
+                response.setCurrentReleaseDate(releaseDateNode.asString());
             }
         }
         return response;
@@ -251,29 +237,24 @@ public final class EntityConverter {
      */
     public static AdvisoryInformationResponse toAdvisoryVersionInfo(AdvisoryVersionEntity entity) {
 
-        tools.jackson.databind.ObjectMapper mapper = new JsonMapper();
         String id = (entity.getAdvisory() != null)
                 ? entity.getAdvisory().getId().toString() : entity.getId().toString();
         AdvisoryInformationResponse response = new AdvisoryInformationResponse(id);
         response.setWorkflowState(entity.getWorkflowState());
         response.setOwner(entity.getOwner());
-        if (entity.getCsaf() != null) {
-            try {
-                JsonNode csafNode = mapper.readValue(entity.getCsaf().toString(), JsonNode.class);
-                JsonNode titleNode = csafNode.at("/document/title");
-                if (!titleNode.isMissingNode()) {
-                    response.setTitle(titleNode.asString());
-                }
-                JsonNode trackingIdNode = csafNode.at("/document/tracking/id");
-                if (!trackingIdNode.isMissingNode()) {
-                    response.setDocumentTrackingId(trackingIdNode.asString());
-                }
-                JsonNode releaseDateNode = csafNode.at("/document/tracking/current_release_date");
-                if (!releaseDateNode.isMissingNode()) {
-                    response.setCurrentReleaseDate(releaseDateNode.asString());
-                }
-            } catch (Exception e) {
-                // non-fatal: leave title and tracking id blank
+        JsonNode csafNode = entity.getCsaf();
+        if (csafNode != null) {
+            JsonNode titleNode = csafNode.at("/document/title");
+            if (!titleNode.isMissingNode()) {
+                response.setTitle(titleNode.asString());
+            }
+            JsonNode trackingIdNode = csafNode.at("/document/tracking/id");
+            if (!trackingIdNode.isMissingNode()) {
+                response.setDocumentTrackingId(trackingIdNode.asString());
+            }
+            JsonNode releaseDateNode = csafNode.at("/document/tracking/current_release_date");
+            if (!releaseDateNode.isMissingNode()) {
+                response.setCurrentReleaseDate(releaseDateNode.asString());
             }
         }
         return response;
@@ -344,7 +325,7 @@ public final class EntityConverter {
         entity.setOldDocVersion(oldDocVersion);
         entity.setDocVersion(docVersion);
         if (diffPatch != null) {
-            entity.setDiff(toFasterxmlNode(diffPatch));
+            entity.setDiff(diffPatch);
         }
         return entity;
     }
@@ -402,52 +383,5 @@ public final class EntityConverter {
         entity.setChangeType(changeType.name());
         entity.setCommentText(commentText);
         return entity;
-    }
-
-    // -------------------------------------------------------------------------
-    // Internal Jackson 2/3 bridge helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Convert a {@code tools.jackson} (Jackson 3) {@link JsonNode} to a
-     * {@code com.fasterxml.jackson} (Jackson 2) {@link com.fasterxml.jackson.databind.JsonNode}
-     * by serialising to a JSON string and re-parsing.
-     *
-     * @param source the Jackson 3 node
-     * @return the equivalent Jackson 2 node, or {@code null} if source is null
-     */
-    static com.fasterxml.jackson.databind.JsonNode toFasterxmlNode(JsonNode source) {
-
-        if (source == null) {
-            return null;
-        }
-        try {
-            com.fasterxml.jackson.databind.ObjectMapper fasterxmlMapper =
-                    new com.fasterxml.jackson.databind.ObjectMapper();
-            return fasterxmlMapper.readTree(source.toString());
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to convert Jackson 3 node to Jackson 2 node", e);
-        }
-    }
-
-    /**
-     * Convert a {@code com.fasterxml.jackson} (Jackson 2) {@link com.fasterxml.jackson.databind.JsonNode}
-     * to a {@code tools.jackson} (Jackson 3) {@link JsonNode} by serialising to a JSON string
-     * and re-parsing.
-     *
-     * @param source the Jackson 2 node
-     * @return the equivalent Jackson 3 node, or {@code null} if source is null
-     */
-    static JsonNode toToolsJacksonNode(com.fasterxml.jackson.databind.JsonNode source) {
-
-        if (source == null) {
-            return null;
-        }
-        try {
-            tools.jackson.databind.ObjectMapper mapper = new JsonMapper();
-            return mapper.readValue(source.toString(), JsonNode.class);
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to convert Jackson 2 node to Jackson 3 node", e);
-        }
     }
 }

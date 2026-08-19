@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -48,6 +49,9 @@ public class CommentEntity {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    @Version
+    private Long version;
 
     public UUID getId() {
         return id;
@@ -111,5 +115,13 @@ public class CommentEntity {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 }

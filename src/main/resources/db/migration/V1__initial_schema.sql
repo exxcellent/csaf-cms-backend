@@ -62,7 +62,8 @@ CREATE TABLE comments (
     csaf_node_id VARCHAR(255),
     field_name   VARCHAR(255),
     answer_to    UUID         REFERENCES comments(id) ON DELETE CASCADE,
-    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    version      BIGINT       NOT NULL DEFAULT 0
 );
 
 -- Audit trail for comment changes (was ObjectType.CommentAuditTrail)
@@ -84,7 +85,8 @@ CREATE TABLE counters (
 -- Indexes for common query patterns
 CREATE INDEX idx_advisories_workflow_state ON advisories(workflow_state);
 CREATE INDEX idx_advisories_owner ON advisories(owner);
-CREATE INDEX idx_advisories_tracking_id ON advisories USING GIN ((csaf -> 'document' -> 'tracking' -> 'id'));
+CREATE UNIQUE INDEX idx_advisories_tracking_id
+    ON advisories ((csaf -> 'document' -> 'tracking' ->> 'id'));
 CREATE INDEX idx_advisories_csaf ON advisories USING GIN (csaf jsonb_path_ops);
 CREATE INDEX idx_advisory_versions_advisory_id ON advisory_versions(advisory_id);
 CREATE INDEX idx_audit_trail_documents_advisory_id ON audit_trail_documents(advisory_id);

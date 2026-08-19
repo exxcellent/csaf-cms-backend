@@ -12,7 +12,7 @@ services:
       POSTGRES_USER: ${CSAF_DB_USER}
       POSTGRES_PASSWORD: ${CSAF_DB_PASSWORD}
     volumes:
-      - ./data/cms-db:/var/lib/postgresql/data
+      - cms-db-data:/var/lib/postgresql/data
     ports:
       - "${CSAF_DB_PORT}:5432"
     healthcheck:
@@ -26,7 +26,7 @@ services:
     image: postgres:17-alpine
     container_name: keycloak-db
     volumes:
-      - ./data/keycloak-db:/var/lib/postgresql/data
+      - keycloak-db-data:/var/lib/postgresql/data
     env_file: .env
     environment:
       POSTGRES_DB: ${CSAF_KEYCLOAK_DATABASE_NAME}
@@ -273,3 +273,9 @@ services:
       trusted-provider:
         condition: service_healthy
 
+volumes:
+  # Named (Docker-managed) volumes rather than host bind-mounts: Postgres's initdb
+  # hard-requires chmod 0700 on its data directory. Named volumes live in Docker's own Linux-side
+  # filesystem instead, avoiding any issues with Windows.
+  cms-db-data:
+  keycloak-db-data:

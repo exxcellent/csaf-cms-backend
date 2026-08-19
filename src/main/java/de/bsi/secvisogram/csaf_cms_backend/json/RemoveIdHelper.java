@@ -24,22 +24,4 @@ public class RemoveIdHelper {
             ((ObjectNode) jsonNode).remove(idName);
         }
     }
-
-    public static void removeCommentIds(com.fasterxml.jackson.databind.JsonNode csaf) {
-
-        removeIds(csaf, COMMNENT_NODE_ID);
-    }
-
-    private static void removeIds(com.fasterxml.jackson.databind.JsonNode jsonNode, String commnentNodeId) {
-        if (jsonNode.isArray()) {
-            for (com.fasterxml.jackson.databind.JsonNode arrayItem : jsonNode) {
-                removeIds(arrayItem, commnentNodeId);
-            }
-        } else if (jsonNode.isObject()) {
-            for (com.fasterxml.jackson.databind.JsonNode field : jsonNode) {
-                removeIds(field, commnentNodeId);
-            }
-            ((com.fasterxml.jackson.databind.node.ObjectNode) jsonNode).remove(commnentNodeId);
-        }
-    }
 }
