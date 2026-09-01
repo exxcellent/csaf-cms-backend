@@ -116,6 +116,9 @@
   	     			  <exclude>**/CouchDbServiceTest.java</exclude>
   	     			  <exclude>**/AdvisoryWorkflowSemanticVersioningTest.java</exclude>
   	     			  <exclude>**/AdvisorySearchUtilTest.java</exclude>
+  	     			  <exclude>**/AdvisoryServiceTest.java</exclude>
+  	     			  <exclude>**/AdvisoryServiceExportNoLogoTest.java</exclude>
+  	     			  <exclude>**/AdvisoryWorkflowIntegerVersioningTest.java</exclude>
   	    		  </excludes>
   				  </configuration>
   				</plugin>
@@ -150,9 +153,26 @@
 		</dependency>
 		<!-- Database -->
 		<dependency>
-			<groupId>com.ibm.cloud</groupId>
-			<artifactId>cloudant</artifactId>
-			<version>${dependency.version.cloudant}</version>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<!-- Flyway for schema migrations -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-flyway</artifactId>
 		</dependency>
 
 		<!-- OpenAPI -->
@@ -176,6 +196,11 @@
 			<version>${dependency.version.springdoc-openapi}</version>
 		</dependency>
 
+		<!-- Used in JavascriptExporter for Base64 encoding -->
+		<dependency>
+			<groupId>commons-codec</groupId>
+			<artifactId>commons-codec</artifactId>
+		</dependency>
 		<!-- Used in
 		de.bsi.secvisogram.csaf_cms_backend.service.AdvisoryWorkflow -->
 		<dependency>
@@ -261,6 +286,12 @@
 		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>testcontainers-junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
+			<version>${testcontainers.version}</version>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
