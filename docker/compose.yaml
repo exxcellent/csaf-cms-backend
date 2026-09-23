@@ -172,6 +172,9 @@ services:
     image: ghcr.io/secvisogram/csaf-cms-backend:sha-829eb0d
     env_file: ../.env
     environment:
+      # GraalVM Polyglot (used for HTML export) is memory-hungry; the default 256 MB heap
+      # is not enough and causes OutOfMemoryError when exporting large advisories.
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx2g"
       # Internal service names, only reachable from inside this container. The values in ../.env
       # (localhost-based) remain correct for running the backend on the host via
       # "./mvnw spring-boot:run" during debugging.
